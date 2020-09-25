@@ -3,8 +3,6 @@ import java.nio.file.Paths
 import akka.actor.typed.{ActorRef, Scheduler}
 import akka.actor.typed.scaladsl.AskPattern._
 import akka.util.Timeout
-import cats.data.Validated
-import cats.data.Validated.{Invalid, Valid}
 import cats.effect.{Blocker, ContextShift, IO}
 import cats.implicits._
 import fs2._
@@ -33,10 +31,10 @@ class StreamProcessor(private val eventActor: ActorRef[Request]) {
         .filter(_.nonEmpty)
         .through(StreamProcessor.eventParser)
         .evalMap {
-          case Valid(event) =>
+          case Success(event) =>
             IO.fromFuture(IO(eventActor.ask[Single](ref => Update(event, ref)))).map(_.event)
-          case Invalid(e) =>
-            IO(println(e)) >> IO.pure(None)
+          case Failure(e) =>
+            IO(println(e.getMessage)) >> IO.pure(None)
         }
         .collect { case Some(event) => event }
   }
@@ -46,26 +44,16 @@ object StreamProcessor {
   /**
    * FS2 Pipe to parse the raw data into an Event data structure.
    */
-  val eventParser: Pipe[IO, String, Validated[String, Event]] =
+  val eventParser: Pipe[IO, String, Try[Event]] =
     _.map { hex =>
-      Try(Integer.parseInt(hex.drop(2), 16)) match {
-        case Failure(e) =>
-          s"failed to parse '$hex': ${e.getMessage}".invalid
-        case Success(int) =>
-          def binaryToDecimal(binary: String): Validated[String, Int] =
-            Try(Integer.parseInt(binary, 2)) match {
-              case Failure(e) =>
-                s"failed to parse '$binary': ${e.getMessage}".invalid
-              case Success(int) =>
-                int.valid
-            }
-          val bits = int.toBinaryString.reverse.padTo(32, '0')
-          val pointsScored = binaryToDecimal(bits.slice(0, 2).reverse)
-          val scorer = binaryToDecimal(bits.slice(2, 3).reverse)
-          val team2Total = binaryToDecimal(bits.slice(3, 11).reverse)
-          val team1Total = binaryToDecimal(bits.slice(11, 19).reverse)
-          val elapsedSeconds = binaryToDecimal(bits.slice(19, 31).reverse)
-          (pointsScored, scorer, team2Total, team1Total, elapsedSeconds).mapN(Event.apply)
+      val trimmed = if (hex.startsWith("0x")) hex.drop(2) else hex
+      Try(Integer.parseInt(trimmed, 16)).map { binary =>
+        val pointsScored = binary & 3
+        val scorer = (binary >> 2) & 1
+        val team2Total = (binary >> 3) & 255
+        val team1Total = (binary >> 11) & 255
+        val elapsedSeconds = (binary >> 19) & 4095
+        Event(pointsScored, scorer, team2Total, team1Total, elapsedSeconds)
       }
     }
 }

@@ -1,4 +1,4 @@
-name := "img"
+name := "match-events-fs2"
 
 version := "0.1"
 

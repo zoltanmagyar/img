@@ -10,7 +10,7 @@ class EventParserTest extends AnyFunSuite with OptionValues {
 
     val event = hexStream.through(parser).compile.toList.unsafeRunSync().head
 
-    assert(event.isInvalid)
+    assert(event.isFailure)
   }
 
   test("parser accepts a valid hex string") {
@@ -19,7 +19,7 @@ class EventParserTest extends AnyFunSuite with OptionValues {
     val events = hexStream.through(parser).compile.toList.unsafeRunSync()
 
     assert(events.size == 2)
-    assert(events.forall(_.isValid))
+    assert(events.forall(_.isSuccess))
     assert(events.head.toOption.value == Event(pointsScored = 2, scorer = 0, team1Total = 2, team2Total = 0, elapsedSeconds = 15))
     assert(events(1).toOption.value == Event(pointsScored = 3, scorer = 1, team1Total = 2, team2Total = 3, elapsedSeconds = 30))
   }
